@@ -40,16 +40,29 @@
     "test": "node --test \"test/*.test.js\"",
     "check": "for f in index.js client.js src/*.js test/*.js; do node --check \"$f\" || exit 1; done"
   },
-  "dependencies": {
+  "devDependencies": {
+    "@deepseek-ai/cordis": "4.1.0",
     "@deepseek-ai/schemastery": "^3.19.0"
   },
-  "devDependencies": {
-    "@deepseek-ai/cordis": "4.1.0"
-  },
-  "keywords": ["dsh-plugin", "deepseek-harness", "dsh", "css", "theme", "styles"],
+  "keywords": [
+    "dsh-plugin",
+    "deepseek-harness",
+    "dsh",
+    "css",
+    "theme",
+    "styles"
+  ],
   "author": "Sakina",
   "license": "MIT",
-  "repository": { "type": "git", "url": "git+https://github.com/soffits/dsh-custom-css.git" },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/soffits/dsh-custom-css.git"
+  },
   "homepage": "https://github.com/soffits/dsh-custom-css#readme",
-  "bugs": { "url": "https://github.com/soffits/dsh-custom-css/issues" }
+  "bugs": {
+    "url": "https://github.com/soffits/dsh-custom-css/issues"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/schemastery": "^3.18.5"
+  }
 }
