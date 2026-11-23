@@ -1,6 +1,6 @@
 # dsh-custom-css
 
-A small DeepSeek Harness (DSH) plugin that serves the user's own CSS to the Web UI, plus a default fix that stops the whole page from scrolling. `src/style.js` builds the stylesheet, `src/http.js` serves it to the signed-in owner only, `src/config.js` defines the plugin settings; `UPSTREAM.md` is the write-up of the DSH page bug the fix works around.
+A small DeepSeek Harness (DSH) plugin that serves the user's own CSS to the Web UI, plus a default fix that stops the whole page from scrolling and an opt-in edge-to-edge layout for phones. `src/style.js` builds the stylesheet, `src/http.js` serves it to the signed-in owner only, `src/config.js` defines the plugin settings, `client.js` links the stylesheet and acts on the flags it carries; `UPSTREAM.md` holds the write-ups of the DSH page issues the built-in parts work around.
 
 ## Rules
 

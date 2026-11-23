@@ -3,6 +3,8 @@ import z from '@deepseek-ai/schemastery'
 export const Config = z.object({
   fixOverflow: z.boolean().default(true)
     .description('Apply the built-in fix that keeps the whole page from scrolling (for example after a reconnect) by clipping html and body to the window.'),
+  edgeToEdge: z.boolean().default(false)
+    .description('Take the whole screen on a phone: the page reaches under the status bar and the home indicator, and DSH keeps inside the safe area by itself. An app already on the home screen has to be added again to pick it up. See the README.'),
   probe: z.boolean().default(false)
     .description('Draw a viewport probe over the page: the sizes the browser reports, the safe-area insets and a mark where each tap lands. For diagnosing layout and tap offsets on phones; leave it off otherwise.'),
   css: z.string().role('textarea').default('')
