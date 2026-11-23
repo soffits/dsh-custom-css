@@ -76,8 +76,8 @@ window.__ModuleLoader__.load({
     /**
      * The probe: the sizes the browser reports and a mark where each tap lands, drawn in the document
      * (not in a fixed layer), so a mark away from the finger shows that drawing and hit-testing disagree.
-     * Panel and marks are placed with `inset`: the edge-to-edge rule moves children of body that carry an
-     * inline `top` and `left`, which is how it recognises DSH's popups.
+     * Marks are placed from body's own box, wherever the page puts it, and with `inset`: the edge-to-edge
+     * rule moves children of body that carry an inline `top` and `left`, which is how it recognises DSH's popups.
      * @returns {() => void} Removes everything it added.
      */
     function startProbe(doc) {
@@ -116,7 +116,8 @@ window.__ModuleLoader__.load({
       }
       const onTap = (event) => {
         const mark = doc.createElement('div')
-        mark.style.cssText = `position:absolute;z-index:2147483647;inset:${event.clientY + win.scrollY - 12}px auto auto ${event.clientX + win.scrollX - 12}px;width:22px;height:22px;border:2px solid #f0f;border-radius:50%;pointer-events:none`
+        const origin = doc.body.getBoundingClientRect()
+        mark.style.cssText = `position:absolute;z-index:2147483647;inset:${event.clientY - origin.y - 12}px auto auto ${event.clientX - origin.x - 12}px;width:22px;height:22px;border:2px solid #f0f;border-radius:50%;pointer-events:none`
         doc.body.append(mark)
         marks.add(mark)
         win.setTimeout(() => { mark.remove(); marks.delete(mark) }, MARK_MS)

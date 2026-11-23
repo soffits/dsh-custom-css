@@ -26,9 +26,7 @@ body {
 `
 
 const SIDES = ['top', 'right', 'bottom', 'left']
-const sides = (value) => SIDES.map(value).join(' ')
-const inset = (side) => `var(--edge-inset-${side})`
-const outward = (side) => `calc(-1 * ${inset(side)})`
+const shell = (side) => `var(--edge-shell-${side})`
 
 /**
  * Edge to edge: for a page that takes the whole screen of a phone (client.js
@@ -38,44 +36,36 @@ const outward = (side) => `calc(-1 * ${inset(side)})`
  * is followed by the browser alone. Where the insets are zero every rule here
  * resolves to what DSH already has.
  *
- * Three boxes:
- * - `html` keeps to the safe area (a transparent border as wide as the insets)
- *   and, through the identity transform, is the containing block of every
- *   `position: fixed` box. So DSH's modals, toasts and any plugin's overlay stay
- *   inside the safe area without a rule of their own, and no layer is left
- *   fixed to the viewport for iOS to place by itself.
- * - `body` grows back out to the whole screen, so the app's background fills
- *   the strips and the overflow fix clips at the screen edge as before.
- * - `#root`, DSH's shell, is padded by `--edge-shell-*`. They default to the
- *   insets; your own CSS can lower one to let the shell into that strip and
- *   then move single controls aside with `--edge-inset-*`.
+ * One box holds everything DSH draws: `body` stays `--edge-shell-*` away from
+ * the screen edges, and through the identity transform it is the containing
+ * block of `position: fixed` boxes as well. So the shell, DSH's modals and
+ * toasts and any plugin's overlay all keep inside it without a rule of their
+ * own, the overflow fix clips them with everything else, and no layer is left
+ * fixed to the viewport for iOS to place by itself. Body's background is what
+ * the browser paints behind the whole page, so the strips outside the box take
+ * the app's colour.
  *
- * DSH places its menus and popovers by script: portalled to `body`, fixed, with
- * inline `top` and `left` in window coordinates. Inside a containing block that
- * starts at the safe area they would sit off by the top and left insets, so the
- * last rule moves them back.
+ * The shell insets default to the safe-area insets. Your own CSS can lower one
+ * to let DSH into that strip and then move single controls aside with
+ * `--edge-inset-*`.
+ *
+ * DSH places its menus and popovers by script: portalled to `body`, with inline
+ * `top` and `left` in window coordinates. In a box that starts away from the
+ * window's corner they would sit off by that distance, so the last rule moves
+ * them back.
  */
 export const EDGE_TO_EDGE = `:root {
   --dsh-custom-css-edge: 1;
 ${SIDES.map(side => `  --edge-inset-${side}: env(safe-area-inset-${side}, 0px);`).join('\n')}
-${SIDES.map(side => `  --edge-shell-${side}: ${inset(side)};`).join('\n')}
-}
-html {
-  box-sizing: border-box;
-  border: solid transparent;
-  border-width: ${sides(inset)};
-  transform: translate(0);
+${SIDES.map(side => `  --edge-shell-${side}: var(--edge-inset-${side});`).join('\n')}
 }
 body {
-  margin: ${sides(outward)};
-  height: calc(100% + ${inset('top')} + ${inset('bottom')});
-}
-#root {
-  box-sizing: border-box;
-  padding: ${sides(side => `var(--edge-shell-${side})`)};
+  margin: ${SIDES.map(shell).join(' ')};
+  height: calc(100% - ${shell('top')} - ${shell('bottom')});
+  transform: translate(0);
 }
 body > [style*="top:"][style*="left:"] {
-  translate: ${outward('left')} ${outward('top')};
+  translate: calc(-1 * ${shell('left')}) calc(-1 * ${shell('top')});
 }
 `
 

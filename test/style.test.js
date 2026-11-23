@@ -47,32 +47,26 @@ test('the edge setting adds the flag client.js looks for, before the user css', 
   assert.ok(style.indexOf(EDGE_TO_EDGE) < style.indexOf('--edge-shell-right: 0px'), 'user css can lower a shell inset')
 })
 
-test('edge to edge takes every inset from env(), with the shell keeping to them by default', () => {
+test('edge to edge takes every inset from env(), and the shell keeps to them unless told otherwise', () => {
   const root = rule(EDGE_TO_EDGE, ':root')
   for (const side of SIDES) {
     assert.equal(root[`--edge-inset-${side}`], `env(safe-area-inset-${side}, 0px)`)
     assert.equal(root[`--edge-shell-${side}`], `var(--edge-inset-${side})`)
   }
-  assert.equal(rule(EDGE_TO_EDGE, '#root').padding, SIDES.map(side => `var(--edge-shell-${side})`).join(' '))
-  assert.equal(rule(EDGE_TO_EDGE, '#root')['box-sizing'], 'border-box')
   assert.doesNotMatch(EDGE_TO_EDGE.replace(/, 0px\)/g, ')'), /\d+px/, 'no inset is written down as a number')
 })
 
-test('edge to edge keeps fixed boxes in the safe area and lets body fill the screen', () => {
-  const html = rule(EDGE_TO_EDGE, 'html')
-  // the border makes html's padding box the safe area; the transform makes that box hold position: fixed descendants
-  assert.equal(html['border-width'], SIDES.map(side => `var(--edge-inset-${side})`).join(' '))
-  assert.equal(html['box-sizing'], 'border-box')
-  assert.match(html.border, /transparent/)
-  assert.equal(html.transform, 'translate(0)')
+test('edge to edge keeps body, and with it every fixed box, inside the shell insets', () => {
   const body = rule(EDGE_TO_EDGE, 'body')
-  assert.equal(body.margin, SIDES.map(side => `calc(-1 * var(--edge-inset-${side}))`).join(' '))
-  assert.equal(body.height, 'calc(100% + var(--edge-inset-top) + var(--edge-inset-bottom))')
+  assert.equal(body.margin, SIDES.map(side => `var(--edge-shell-${side})`).join(' '))
+  assert.equal(body.height, 'calc(100% - var(--edge-shell-top) - var(--edge-shell-bottom))')
+  // the transform makes body the containing block of position: fixed descendants, so they stay in and get clipped with the rest
+  assert.equal(body.transform, 'translate(0)')
 })
 
-test('edge to edge moves popups placed in window coordinates back by the top and left insets', () => {
+test('edge to edge moves popups placed in window coordinates back by where body starts', () => {
   const popup = rule(EDGE_TO_EDGE, 'body > [style*="top:"][style*="left:"]')
-  assert.equal(popup.translate, 'calc(-1 * var(--edge-inset-left)) calc(-1 * var(--edge-inset-top))')
+  assert.equal(popup.translate, 'calc(-1 * var(--edge-shell-left)) calc(-1 * var(--edge-shell-top))')
 })
 
 test('edge to edge leaves the overflow fix alone: body stays in normal flow', () => {

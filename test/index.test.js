@@ -141,6 +141,10 @@ test('with the flag the probe shows the sizes, marks taps, and leaves nothing be
   assert.match(panel.textContent, /tap 100,500/)
   // 12px up and left of the tap, written as `inset` so the edge-to-edge popup rule (inline top and left) passes it by
   assert.ok(page.body.some(node => /inset:488px auto auto 88px/.test(node.style.cssText)))
+  // body moved (the shell kept off a status bar): the mark still lands under the finger
+  page.doc.body.getBoundingClientRect = () => ({ x: 0, y: 82, width: 867, height: 587 })
+  page.listeners.get('document:pointerdown')({ clientX: 100, clientY: 500, target: null })
+  assert.ok(page.body.some(node => /inset:406px auto auto 88px/.test(node.style.cssText)))
   assert.ok(page.body.every(node => !/(top|left):/.test(node.style.cssText)))
   page.listeners.get('window:resize')({ type: 'resize' })
   assert.match(panel.textContent, /resize 867×669/)
