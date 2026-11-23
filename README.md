@@ -4,8 +4,9 @@ Custom CSS for the DeepSeek Harness (DSH) Web UI, as a small plugin with no depe
 
 - **Your own CSS.** Put a stylesheet in the `css` field of the plugin row; it is applied to the whole page.
 - **Overflow fix, on by default.** DSH's page sets `html, body, #root` to `height: 100%` and clips nothing, so anything that sticks out past the window makes the whole document scrollable, and the app header scrolls away (seen after a disconnect and reconnect). The fix clips `html` and `body` to the window, keeping `body` in normal flow (a fixed `body` gets drawn away from where taps land on iPhones after a rotation). Details: [UPSTREAM.md](UPSTREAM.md).
-- **Edge to edge, off by default.** For DSH as a home-screen app on a phone: the page takes the whole screen, reaching under the status bar and the home indicator, and DSH keeps inside the safe area by itself. iOS then has no inset of its own to get wrong after a rotation. See [Edge to edge](#edge-to-edge).
-- **Viewport probe, off by default.** For layout and tap problems on phones: draws the sizes the browser reports (window, visual viewport, screen, safe-area insets, display mode) over the page and a ring where each tap lands, so one screenshot shows whether drawing and tapping agree.
+- **Edge to edge, off by default.** For DSH as a home-screen app on a phone: the page asks for the whole screen, reaching under the status bar and the home indicator, and DSH keeps inside the safe area by itself. How much of the screen iOS then hands over differs between versions. See [Edge to edge](#edge-to-edge).
+- **Reports, off by default.** For layout and tap problems on a device you cannot look at: each open page sends what its browser reports (window, viewport and screen sizes, safe-area insets, display mode) to your DSH, on load and whenever it changes, and a few taps after each change. Nothing is drawn. See [Reports](#reports).
+- **Viewport probe, off by default.** The same readings drawn over the page, with a ring where each tap lands, so one screenshot shows whether drawing and tapping agree.
 
 ## Installation
 
@@ -21,16 +22,18 @@ or add the bundle in the Web UI's plugin manager. A local checkout works too: `p
 | --- | --- | --- |
 | `fixOverflow` | `true` | Apply the built-in fix that keeps the whole page from scrolling. |
 | `edgeToEdge` | `false` | Take the whole screen on a phone and keep DSH inside the safe area. An installed home-screen app has to be added again. |
-| `probe` | `false` | Draw the viewport probe over the page. Turn it off again when done. |
+| `report` | `false` | Have open pages send their readings to DSH, which keeps them in `custom-css/reports.jsonl` under the DSH home. |
+| `probe` | `false` | Draw the readings over the page. It shows on every device that has the page open; turn it off again when done. |
+| `recover` | empty | Experiment: what to try when an iOS home-screen app comes back from a rotation with an empty band. See [Reports](#reports). |
 | `css` | empty | Your CSS, added after the fix, so it can override it. |
 
-Reload the page after changing a setting; the stylesheet is served uncached from `/custom-css/style.css` to the signed-in owner only.
+A changed setting reaches an open page the next time it comes to the front (a tab switched back to, an app reopened), without a reload; with `report` on, also at its next report. The stylesheet is served uncached from `/custom-css/style.css` to the signed-in owner only.
 
 ## Edge to edge
 
 DSH's page does not ask a phone for the whole screen, so for a home-screen app iOS keeps the page inside the safe area and owns that inset. After a rotation or a return from the background iOS can leave the inset of the other orientation in place: the page starts a status bar's width away from the edge with a blank band, or taps land beside where things are drawn, until the app is restarted. It shows most on a phone whose status bar sits beside the page in landscape and above it in portrait.
 
-With `edgeToEdge` on, the page asks for the whole screen (`viewport-fit=cover`, and for a home-screen app the status bar drawn over the page), so there is no system inset left to go stale. The plugin then keeps DSH clear of the status bar and the home indicator with the browser's own live `env(safe-area-inset-*)` values: the shell, dialogs, menus, toasts and plugin overlays all stay in one box, and the strips outside it take the app's background. In a desktop browser or an ordinary tab the insets are zero and nothing changes.
+With `edgeToEdge` on, the page asks for the whole screen (`viewport-fit=cover`, and for a home-screen app the status bar drawn over the page). Where iOS grants it there is no system inset left to go stale; where it does not (see [Limits](#limits)), the setting changes nothing along that edge. The plugin then keeps DSH clear of the status bar and the home indicator with the browser's own live `env(safe-area-inset-*)` values: the shell, dialogs, menus, toasts and plugin overlays all stay in one box, and the strips outside it take the app's background. In a desktop browser or an ordinary tab the insets are zero and nothing changes.
 
 ### Turning it on
 
@@ -66,9 +69,49 @@ Now the conversation and the composer use the full width and only the header row
 - The status items are drawn in white over the page (that is the only over-the-page style iOS offers). On a light theme they are hard to read unless something dark sits behind them.
 - DSH places its menus and popovers itself, in window coordinates, and fits them to the window, not to the safe area. The plugin moves them back to their triggers, but one that DSH had to push against a screen edge can be cut off by the strip's width.
 - An overlay that sizes itself with `100vh` or `100dvh` is as tall as the screen, not as the box; it gets clipped at the box edge. `height: 100%` fits.
-- Some iOS versions have opened home-screen apps letterboxed, or reported the insets wrongly, when the status bar is over the page (WebKit bugs [313800](https://bugs.webkit.org/show_bug.cgi?id=313800), [317153](https://bugs.webkit.org/show_bug.cgi?id=317153)). Turn on `probe` to see what the device reports: `window` should be the whole screen (the `screen` numbers, swapped in landscape), and `safe-area` should show the status bar's size on the side where it is. A `window` that is short by the status bar means iOS is still insetting the app itself.
+- iOS decides whether a home-screen app may draw under the status bar, and recent versions often say no, whatever the page declares (WebKit bugs [301994](https://bugs.webkit.org/show_bug.cgi?id=301994), [317153](https://bugs.webkit.org/show_bug.cgi?id=317153); the manifest's `display: fullscreen` does not do it either, [264220](https://bugs.webkit.org/show_bug.cgi?id=264220)). Measured on one current phone with a freshly added icon: the page reached the bottom edge and got the home indicator's inset, but the status bar stayed outside it, with the window short by the bar and the insets on that side zero. There the setting cannot remove the stale inset after a rotation. `report` shows what a device does: a `window` as large as the screen and a non-zero inset on the status bar's side mean it worked.
 
 What DSH itself could change to make this unnecessary is in [UPSTREAM.md](UPSTREAM.md).
+
+## Reports
+
+With `report` on, every open page posts a reading to `/custom-css/report` and DSH appends it, one JSON object per line, to `custom-css/reports.jsonl` under the DSH home (`~/.dsh` unless `DSH_HOME` says otherwise). At 512 KB the file becomes `reports.old.jsonl` and a new one starts, so the two never hold more than about 1 MB. Only the signed-in owner's pages are listened to.
+
+A page reports when it loads and after every resize, rotation, show or hide: once at the first event of a burst, once when it has gone quiet (`settled`, with the events it saw) and once more if anything still moved a few seconds later (`late`). For half a minute after a burst it also reports up to twenty taps: where the finger was in the window and in the document, the element that got the tap, and the element drawn at that point.
+
+Each line holds:
+
+| Field | Meaning |
+| --- | --- |
+| `at`, `t`, `ms` | When DSH got it, the page's own clock, and milliseconds since the page loaded. |
+| `page`, `seq` | One id per page load and a counter within it, to read a rotation as a series. |
+| `event`, `events` | What caused the line. |
+| `window`, `html`, `visual`, `screen`, `dpr` | Window size, layout size, visual viewport (size, offset, position in the document, scale), screen and orientation. |
+| `insets` | The safe-area insets, top right bottom left, measured from `env()`. |
+| `body`, `root`, `scroll` | Where DSH's boxes are and how far the window is scrolled. |
+| `standalone`, `display`, `visibility`, `fps` | Home-screen app or not, display mode, visible or hidden, frames per second during the burst. |
+| `meta` | The viewport and status-bar tags as they are in the document. |
+| `popups` | Open menus and popovers: where their inline style puts them and where they are. |
+| `stale` | The page is scrolled to a negative offset, or a home-screen app is laid out smaller than its window. |
+| `settings`, `revision`, `build`, `client`, `current` | The settings the page runs with, and whether its stylesheet and its copy of the plugin are the current ones. |
+| `ua` | The browser's user agent. |
+| `tap` | For a tap: `client`, `page`, `target`, `inside` (the point lies in the target's box) and `drawnThere`. |
+
+No page content is sent: elements are named by tag, label and box.
+
+### The recovery experiment
+
+An iOS home-screen app can come back from a rotation with the window at its new size but the page still laid out for the old one: short by the status bar's old inset and scrolled to minus that inset, which shows as an empty band (`stale` in the reports). `recover` lists what a page should try when it sees this, in order, until the state is gone:
+
+| Try | What it does |
+| --- | --- |
+| `meta` | Changes the viewport tag and puts it back. |
+| `style` | Changes the root's height for a moment and forces a layout. |
+| `scroll` | Scrolls the window and back. |
+| `reload` | Reloads the page, once per stale state. |
+| `cover` | Leaves the layout alone and gives DSH's box the visible area for as long as the state lasts. Later tries are not reached, so list it last. |
+
+Each try is reported as `before:<name>` and `after:<name>`, so one rotation tells which of them helped. It is an experiment: none is known to work, and a window that is legitimately smaller than its layout would set it off.
 
 ## Development
 
