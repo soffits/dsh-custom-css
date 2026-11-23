@@ -1,6 +1,8 @@
-# DSH Web UI: the whole page can be scrolled (after a reconnect)
+# Suggested reports for DSH's Web UI
 
-Suggested bug report for deepseek-ai/deepseek-harness (issues are disabled there, so this is not filed). Seen on DSH 0.2.2-rc.1, Web UI.
+Two suggested bug reports for deepseek-ai/deepseek-harness (issues are disabled there, so they are not filed). Seen on DSH 0.2.2-rc.1, Web UI. The plugin works around both; when DSH fixes one, the workaround goes and this file says so.
+
+# 1. The whole page can be scrolled (after a reconnect)
 
 ## Problem
 
@@ -32,3 +34,25 @@ body { position: relative; overflow: clip; overscroll-behavior: none; }
 `overflow: hidden` on `html` alone is not enough, because script can still scroll a hidden viewport. `overflow: clip` on `body` cannot be scrolled at all, and `position: relative` makes `body` the box absolutely positioned elements are clipped by, so nothing reaches past the window. Checked in WebKit and Chromium with the repro above, with a fixed element below the window and with focus moving to a field far below: `scrollTop` stays 0 in every case. Layout is unchanged otherwise.
 
 An earlier version of this fix made `body` `position: fixed; inset: 0`. That stops the scrolling too, but it puts the whole app into one fixed layer, and on iOS fixed layers are placed by the browser from its own idea of the viewport. In an iPhone home-screen app that idea can go stale after a rotation or a return from the background, so the app was drawn away from where taps landed, or shrunk with a blank band. Keep `body` in normal flow.
+
+# 2. As a home-screen app on a phone, the page leaves the safe area to iOS, and nothing in it can take that over cleanly
+
+## Problem
+
+Added to an iPhone's home screen, DSH is laid out inside the safe area by iOS: `index.html` has `width=device-width, initial-scale=1` with no `viewport-fit=cover`, and nothing says how the status bar should be drawn. That inset belongs to the system, and after a rotation or a return from the background iOS can keep the inset of the other orientation: the page starts a status bar's width from the edge with a blank band beside it, or taps land away from where things are drawn, until the app is restarted. It is easiest to hit on a phone whose status bar sits above the page in portrait and in a column beside it in landscape, since every rotation moves the inset to another side.
+
+A page gets out of this by taking the whole screen (`viewport-fit=cover`, `apple-mobile-web-app-status-bar-style`) and padding itself with `env(safe-area-inset-*)`, which the browser keeps current. This plugin's `edgeToEdge` setting does that from outside, and three things in the frontend make it harder than it should be.
+
+## What gets in the way
+
+1. Menus and popovers are placed by script as `position: fixed` boxes with `left` and `top` taken from `getBoundingClientRect()` and fitted to `visualViewport` / `innerWidth` / `innerHeight` (the anchored-panel hook, the context menu, tooltips, hover cards, the subagent menu). That is only right while the fixed containing block is the window itself. Put the app in a box that starts below a status bar (a transformed ancestor, which is also the only way to keep `inset: 0` dialogs and toasts inside the safe area without a rule per component) and every popup lands off by the box's offset; and because they are fitted to the window, not to that box, a popup pushed against an edge ends under the status bar or the home indicator.
+2. The frontend already has the idea of chrome over the page, for the desktop title bar: `--dsh-frame-top-clearance`, `--dsh-frame-overlay-top`, `--dsh-frame-chrome-top`. It exists for the top edge only and is set from the platform attributes, so a phone's insets on the other three sides have nowhere to go.
+3. Overlays are positioned against the window with fixed numbers (`inset: 0` dialog layers with 24px padding, the toast at `top: 40px`, the settings sheet as `position: absolute; height: 100%` on `body` at narrow widths). None of them reads a safe-area inset.
+
+## Suggested fix
+
+- In `index.html`: `viewport-fit=cover` in the viewport tag and `<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">`. In a browser tab and on desktop both are inert.
+- Feed the existing frame variables from the insets on all four sides (`env(safe-area-inset-top, 0px)` and so on, added to the title-bar values), pad the shell with them, and use them in the overlay rules above in place of the bare numbers.
+- Place popups relative to their offset parent (subtract its client rectangle) and fit them to the safe area, or use CSS anchor positioning, which the macOS menu backing already does. Either makes them independent of what the containing block is.
+
+Until then the plugin keeps everything in one box on `body` and moves the script-placed popups back by the box's offset, recognising them as children of `body` with inline `top` and `left`. That selector is the fragile part: it holds as long as DSH keeps portalling its popups to `body` and placing them that way.
