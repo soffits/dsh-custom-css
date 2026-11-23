@@ -303,7 +303,11 @@ test('with report on a page sends its readings: on load, at the start of a burst
   assert.deepEqual(page.sent.map(line => line.event), ['load', 'settled', 'orientationchange'], 'one line at the first event of a burst')
   await page.tick()
   assert.deepEqual(page.sent.at(-1).events, ['orientationchange', 'resize'])
-  assert.deepEqual(page.sent.map(line => line.seq), [1, 2, 3, 4])
+  // a second rotation before the late look of the first is a burst of its own
+  page.listeners.get('window:resize')({ type: 'resize' })
+  await page.tick()
+  assert.deepEqual(page.sent.slice(-2).map(line => [line.event, line.events]), [['resize', undefined], ['settled', ['resize']]])
+  assert.deepEqual(page.sent.map(line => line.seq), [1, 2, 3, 4, 5, 6])
   assert.ok(page.sent.every(line => line.page === load.page))
 
   effects[0]()

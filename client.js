@@ -213,7 +213,7 @@ window.__ModuleLoader__.load({
         },
         rate() {
           const elapsed = win.performance.now() - since
-          const rate = frame === null || elapsed <= 0 ? null : Math.round(frames * 1000 / elapsed)
+          const rate = frame === null || elapsed < 100 ? null : Math.round(frames * 1000 / elapsed)
           frames = 0
           since = win.performance.now()
           return rate
@@ -396,6 +396,7 @@ window.__ModuleLoader__.load({
       const settle = () => {
         const events = burst.events
         burst.quiet = null
+        burst.settled = true
         follow(reader.read().stale)
         const reading = look('settled', { events })
         settledAs = JSON.stringify(reading)
@@ -411,15 +412,13 @@ window.__ModuleLoader__.load({
         })
       }
       const onEvent = (event) => {
-        if (burst === null) {
-          burst = { events: [], quiet: null, late: null }
+        if (burst === null || burst.settled) {
+          if (burst !== null) cancel(burst.late)
+          burst = { events: [], quiet: null, late: null, settled: false }
           frames.start()
-          look(event.type)
-          follow(true)
+          follow(look(event.type).stale)
         } else {
-          if (burst.quiet !== null) cancel(burst.quiet)
-          if (burst.late !== null) cancel(burst.late)
-          burst.late = null
+          cancel(burst.quiet)
         }
         burst.events.push(event.type)
         burst.quiet = after(QUIET_MS, settle)
