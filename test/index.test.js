@@ -43,9 +43,14 @@ test('client.js links the stylesheet once and removes it on dispose', async () =
   assert.equal(head.length, 0)
 })
 
-/** A page just big enough for client.js: head, body, events, timers and computed styles. */
-function fakePage(flag) {
-  const head = []
+const VIEWPORT = 'width=device-width, initial-scale=1'
+
+/**
+ * A page just big enough for client.js: head, body, events, timers and computed styles.
+ * @param {Record<string, string>} flags - Custom properties the stylesheet sets on the root element.
+ */
+function fakePage(flags = {}) {
+  const head = [{ name: 'viewport', content: VIEWPORT }]
   const body = []
   const listeners = new Map()
   const on = target => (type, fn) => listeners.set(`${target}:${type}`, fn)
@@ -57,7 +62,7 @@ function fakePage(flag) {
     navigator: { standalone: true },
     visualViewport: { width: 867, height: 669, offsetLeft: 0, offsetTop: 0, pageLeft: 0, pageTop: 0, scale: 1, addEventListener: on('vv'), removeEventListener: off('vv') },
     matchMedia: query => ({ matches: query === '(display-mode: standalone)' }),
-    getComputedStyle: el => (el === doc.documentElement ? { getPropertyValue: () => flag } : { paddingTop: '0px', paddingRight: '84px', paddingBottom: '34px', paddingLeft: '0px' }),
+    getComputedStyle: el => (el === doc.documentElement ? { getPropertyValue: name => flags[name] ?? '' } : { paddingTop: '0px', paddingRight: '84px', paddingBottom: '34px', paddingLeft: '0px' }),
     requestAnimationFrame: () => 1, cancelAnimationFrame() {}, setInterval: () => 2, clearInterval() {}, setTimeout: () => 3,
     addEventListener: on('window'), removeEventListener: off('window'),
   }
@@ -66,10 +71,13 @@ function fakePage(flag) {
     head: { appendChild: node => head.push(node) },
     body: { append: (...nodes) => body.push(...nodes), getBoundingClientRect: () => ({ x: 0, y: 0, width: 867, height: 669 }) },
     getElementById: id => [...head, ...body].find(node => node.id === id) ?? null,
-    createElement: tag => (tag === 'link' ? element(() => head) : element(() => body)),
+    querySelector: selector => head.find(node => selector === `meta[name="${node.name}"]`) ?? null,
+    createElement: tag => (tag === 'div' || tag === 'pre' ? element(() => body) : element(() => head)),
     addEventListener: on('document'), removeEventListener: off('document'),
   }
-  return { doc, win, head, body, listeners }
+  const link = () => head.find(node => node.rel === 'stylesheet')
+  const metas = () => Object.fromEntries(head.filter(node => node.name).map(node => [node.name, node.content]))
+  return { doc, win, head, body, listeners, link, metas }
 }
 
 async function loadClient(page) {
@@ -83,17 +91,47 @@ async function loadClient(page) {
   return effects
 }
 
-test('the probe stays off unless the stylesheet carries its flag', async () => {
-  const page = fakePage('')
+test('without flags in the stylesheet the page is left alone', async () => {
+  const page = fakePage()
   await loadClient(page)
-  page.head[0].onload()
+  page.link().onload()
   assert.equal(page.body.length, 0)
+  assert.deepEqual(page.metas(), { viewport: VIEWPORT })
+})
+
+test('with the edge flag the page asks for the whole screen, and unloading puts the head back', async () => {
+  const page = fakePage({ '--dsh-custom-css-edge': ' 1' })
+  const effects = await loadClient(page)
+  assert.deepEqual(page.metas(), { viewport: VIEWPORT }, 'nothing changes before the stylesheet says so')
+  page.link().onload()
+  assert.deepEqual(page.metas(), {
+    viewport: `${VIEWPORT}, viewport-fit=cover`,
+    'apple-mobile-web-app-capable': 'yes',
+    'apple-mobile-web-app-status-bar-style': 'black-translucent',
+  })
+  assert.equal(page.body.length, 0, 'the edge flag does not start the probe')
+  effects[0]()
+  assert.deepEqual(page.head, [{ name: 'viewport', content: VIEWPORT }])
+})
+
+test('tags the page already has are changed in place and restored', async () => {
+  const page = fakePage({ '--dsh-custom-css-edge': '1' })
+  page.head[0].content = 'width=device-width, viewport-fit=contain, initial-scale=1'
+  page.head.push({ name: 'apple-mobile-web-app-status-bar-style', content: 'default' })
+  const before = structuredClone(page.head)
+  const effects = await loadClient(page)
+  page.link().onload()
+  assert.equal(page.metas().viewport, 'width=device-width, initial-scale=1, viewport-fit=cover')
+  assert.equal(page.metas()['apple-mobile-web-app-status-bar-style'], 'black-translucent')
+  assert.equal(page.head.filter(node => node.name === 'apple-mobile-web-app-status-bar-style').length, 1)
+  effects[0]()
+  assert.deepEqual(page.head, before)
 })
 
 test('with the flag the probe shows the sizes, marks taps, and leaves nothing behind', async () => {
-  const page = fakePage(' 1')
+  const page = fakePage({ '--dsh-custom-css-probe': ' 1' })
   const effects = await loadClient(page)
-  page.head[0].onload()
+  page.link().onload()
   const panel = page.body.find(node => node.id === 'dsh-custom-css-probe')
   assert.ok(panel)
   assert.match(panel.textContent, /window 867×669/)
@@ -101,11 +139,13 @@ test('with the flag the probe shows the sizes, marks taps, and leaves nothing be
   assert.match(panel.textContent, /display standalone/)
   page.listeners.get('document:pointerdown')({ clientX: 100, clientY: 500, target: null })
   assert.match(panel.textContent, /tap 100,500/)
-  assert.ok(page.body.some(node => /left:88px;top:488px/.test(node.style.cssText)))
+  // 12px up and left of the tap, written as `inset` so the edge-to-edge popup rule (inline top and left) passes it by
+  assert.ok(page.body.some(node => /inset:488px auto auto 88px/.test(node.style.cssText)))
+  assert.ok(page.body.every(node => !/(top|left):/.test(node.style.cssText)))
   page.listeners.get('window:resize')({ type: 'resize' })
   assert.match(panel.textContent, /resize 867×669/)
   effects[0]()
   assert.equal(page.body.length, 0)
-  assert.equal(page.head.length, 0)
+  assert.deepEqual(page.head, [{ name: 'viewport', content: VIEWPORT }])
   assert.equal(page.listeners.size, 0)
 })

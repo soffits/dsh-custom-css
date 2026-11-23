@@ -1,14 +1,17 @@
 /*
  * Browser half of dsh-custom-css: links the stylesheet the Host plugin serves
  * into the page head. A <link> is plain CSS, so it keeps working while the
- * connection to DSH is down or coming back. When the `probe` setting is on,
- * the stylesheet carries a flag and this module draws the viewport probe.
+ * connection to DSH is down or coming back. The `edgeToEdge` and `probe`
+ * settings reach this module as flags in the stylesheet: with the first it adds
+ * the tags that ask a phone for the whole screen, with the second it draws the
+ * viewport probe.
  * Plain JavaScript in DSH's Client module format (no build step).
  */
 window.__ModuleLoader__.load({
   id: 'dsh-custom-css',
   factory() {
     const LINK_ID = 'dsh-custom-css'
+    const EDGE_FLAG = '--dsh-custom-css-edge'
     const PROBE_FLAG = '--dsh-custom-css-probe'
     const PROBE_ID = 'dsh-custom-css-probe'
     /** How long a tap mark stays on the page, in ms. */
@@ -17,6 +20,38 @@ window.__ModuleLoader__.load({
     const WINDOW_EVENTS = ['resize', 'orientationchange', 'pageshow', 'pagehide', 'scroll']
     const DOCUMENT_EVENTS = ['visibilitychange']
     const VIEWPORT_EVENTS = ['resize', 'scroll']
+
+    /**
+     * What a page declares to get the whole screen as an iOS home-screen app: the viewport reaching under
+     * the unsafe areas, and the status bar drawn over the page instead of above it. iOS reads the last two
+     * when the icon is added to the home screen, so they have to be in the document by then.
+     */
+    const EDGE_META = [
+      ['viewport', content => [...content.split(',').map(part => part.trim()).filter(part => part !== '' && !part.startsWith('viewport-fit')), 'viewport-fit=cover'].join(', ')],
+      ['apple-mobile-web-app-capable', () => 'yes'],
+      ['apple-mobile-web-app-status-bar-style', () => 'black-translucent'],
+    ]
+
+    /**
+     * Sets the edge-to-edge tags, changing a tag the page already has and adding one it lacks.
+     * @returns {() => void} Puts the head back as it was.
+     */
+    function claimScreen(doc) {
+      const undo = EDGE_META.map(([name, next]) => {
+        const existing = doc.querySelector(`meta[name="${name}"]`)
+        if (existing === null) {
+          const meta = doc.createElement('meta')
+          meta.name = name
+          meta.content = next('')
+          doc.head.appendChild(meta)
+          return () => meta.remove()
+        }
+        const before = existing.content
+        existing.content = next(before)
+        return () => { existing.content = before }
+      })
+      return () => { for (const restore of undo) restore() }
+    }
 
     const round = (value) => Math.round(value * 10) / 10
     const box = (el) => {
@@ -41,13 +76,15 @@ window.__ModuleLoader__.load({
     /**
      * The probe: the sizes the browser reports and a mark where each tap lands, drawn in the document
      * (not in a fixed layer), so a mark away from the finger shows that drawing and hit-testing disagree.
+     * Panel and marks are placed with `inset`: the edge-to-edge rule moves children of body that carry an
+     * inline `top` and `left`, which is how it recognises DSH's popups.
      * @returns {() => void} Removes everything it added.
      */
     function startProbe(doc) {
       const win = doc.defaultView
       const panel = doc.createElement('pre')
       panel.id = PROBE_ID
-      panel.style.cssText = 'position:absolute;z-index:2147483647;left:50%;top:40%;transform:translateX(-50%);margin:0;padding:6px 8px;max-width:90vw;white-space:pre-wrap;font:11px/1.35 ui-monospace,monospace;color:#fff;background:rgba(0,0,0,.78);border:1px solid #f0f;border-radius:6px;pointer-events:none'
+      panel.style.cssText = 'position:absolute;z-index:2147483647;inset:40% auto auto 50%;transform:translateX(-50%);margin:0;padding:6px 8px;max-width:90vw;white-space:pre-wrap;font:11px/1.35 ui-monospace,monospace;color:#fff;background:rgba(0,0,0,.78);border:1px solid #f0f;border-radius:6px;pointer-events:none'
       const meter = doc.createElement('div')
       meter.style.cssText = 'position:absolute;visibility:hidden;pointer-events:none;padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)'
       doc.body.append(panel, meter)
@@ -79,7 +116,7 @@ window.__ModuleLoader__.load({
       }
       const onTap = (event) => {
         const mark = doc.createElement('div')
-        mark.style.cssText = `position:absolute;z-index:2147483647;left:${event.clientX + win.scrollX - 12}px;top:${event.clientY + win.scrollY - 12}px;width:22px;height:22px;border:2px solid #f0f;border-radius:50%;pointer-events:none`
+        mark.style.cssText = `position:absolute;z-index:2147483647;inset:${event.clientY + win.scrollY - 12}px auto auto ${event.clientX + win.scrollX - 12}px;width:22px;height:22px;border:2px solid #f0f;border-radius:50%;pointer-events:none`
         doc.body.append(mark)
         marks.add(mark)
         win.setTimeout(() => { mark.remove(); marks.delete(mark) }, MARK_MS)
@@ -111,18 +148,22 @@ window.__ModuleLoader__.load({
       apply(ctx) {
         ctx.effect(() => {
           if (typeof document === 'undefined' || document.getElementById(LINK_ID)) return () => {}
+          let releaseScreen = () => {}
           let stopProbe = () => {}
           const link = document.createElement('link')
           link.id = LINK_ID
           link.rel = 'stylesheet'
           link.href = new URL('custom-css/style.css', document.baseURI).href
           link.onload = () => {
-            const flag = document.defaultView.getComputedStyle(document.documentElement).getPropertyValue(PROBE_FLAG).trim()
-            if (flag === '1' && document.getElementById(PROBE_ID) === null) stopProbe = startProbe(document)
+            const root = document.defaultView.getComputedStyle(document.documentElement)
+            const on = (flag) => root.getPropertyValue(flag).trim() === '1'
+            if (on(EDGE_FLAG)) releaseScreen = claimScreen(document)
+            if (on(PROBE_FLAG) && document.getElementById(PROBE_ID) === null) stopProbe = startProbe(document)
           }
           document.head.appendChild(link)
           return () => {
             stopProbe()
+            releaseScreen()
             link.remove()
           }
         }, 'custom-css: stylesheet link')

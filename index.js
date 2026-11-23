@@ -1,7 +1,7 @@
 /**
  * DeepSeek Harness Host plugin: custom CSS for the Web UI. It serves one
- * stylesheet (the built-in overflow fix, then the user's own CSS from the
- * plugin row) to the signed-in owner; client.js links it into the page.
+ * stylesheet (the built-in parts that are turned on, then the user's own CSS
+ * from the plugin row) to the signed-in owner; client.js links it into the page.
  */
 import { Config } from './src/config.js'
 import { createHandler, PREFIX } from './src/http.js'
@@ -13,7 +13,7 @@ export { Config }
 
 /**
  * @param {import('@deepseek-ai/cordis').Context} ctx
- * @param {{ fixOverflow: boolean, probe: boolean, css: string }} config
+ * @param {{ fixOverflow: boolean, edgeToEdge: boolean, probe: boolean, css: string }} config
  */
 export function apply(ctx, config) {
   const style = composeStyle(config)
