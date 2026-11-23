@@ -66,7 +66,10 @@ test('edge to edge keeps body, and with it every fixed box, inside the shell ins
 
 test('edge to edge moves popups placed in window coordinates back by where body starts', () => {
   const popup = rule(EDGE_TO_EDGE, 'body > [style*="top:"][style*="left:"]')
-  assert.equal(popup.translate, 'calc(-1 * var(--edge-shell-left)) calc(-1 * var(--edge-shell-top))')
+  assert.equal(popup['margin-top'], 'calc(-1 * var(--edge-shell-top))')
+  assert.equal(popup['margin-left'], 'calc(-1 * var(--edge-shell-left))')
+  // not a translate: even at zero it changes how the popup is rasterised
+  assert.equal(popup.translate, undefined)
 })
 
 test('edge to edge leaves the overflow fix alone: body stays in normal flow', () => {

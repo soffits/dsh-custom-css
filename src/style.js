@@ -52,7 +52,8 @@ const shell = (side) => `var(--edge-shell-${side})`
  * DSH places its menus and popovers by script: portalled to `body`, with inline
  * `top` and `left` in window coordinates. In a box that starts away from the
  * window's corner they would sit off by that distance, so the last rule moves
- * them back.
+ * them back. With margins, which DSH's popups do not use themselves: a
+ * `translate`, even of zero, makes WebKit rasterise the popup differently.
  */
 export const EDGE_TO_EDGE = `:root {
   --dsh-custom-css-edge: 1;
@@ -65,7 +66,8 @@ body {
   transform: translate(0);
 }
 body > [style*="top:"][style*="left:"] {
-  translate: calc(-1 * ${shell('left')}) calc(-1 * ${shell('top')});
+  margin-top: calc(-1 * ${shell('top')});
+  margin-left: calc(-1 * ${shell('left')});
 }
 `
 
