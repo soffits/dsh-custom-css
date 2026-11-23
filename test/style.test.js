@@ -1,18 +1,21 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { Config } from '../src/config.js'
-import { composeStyle, EDGE_TO_EDGE, OVERFLOW_FIX, PROBE_FLAG } from '../src/style.js'
+import { clientSettings, composeStyle, EDGE_TO_EDGE, OVERFLOW_FIX, RECOVERIES } from '../src/style.js'
 
-test('defaults: the overflow fix on, no edge to edge, no probe, no user css', () => {
+test('defaults: the overflow fix on, no edge to edge, no report, no probe, no recovery, no user css', () => {
   const config = Config({})
   assert.equal(config.fixOverflow, true)
   assert.equal(config.edgeToEdge, false)
+  assert.equal(config.report, false)
   assert.equal(config.probe, false)
+  assert.deepEqual(config.recover, [])
   assert.equal(config.css, '')
   const style = composeStyle(config)
   assert.ok(style.includes(OVERFLOW_FIX))
   assert.ok(!style.includes('edge'))
-  assert.ok(!style.includes(PROBE_FLAG))
+  assert.ok(!style.includes('--dsh-custom-css-probe'))
+  assert.ok(!style.includes('--dsh-custom-css-report'))
   assert.ok(!style.includes('your css'))
 })
 
@@ -40,9 +43,24 @@ function rule(css, selector) {
   }))
 }
 
-test('the edge setting adds the flag client.js looks for, before the user css', () => {
+test('the settings client.js acts on travel as custom properties, with what names the stylesheet', () => {
+  const settings = rule(clientSettings({ edgeToEdge: true, report: true, recover: ['scroll', 'cover'] }, { build: 'b1', revision: 'r1' }), ':root')
+  assert.deepEqual(settings, {
+    '--dsh-custom-css-build': '"b1"',
+    '--dsh-custom-css-revision': '"r1"',
+    '--dsh-custom-css-edge': '1',
+    '--dsh-custom-css-report': '1',
+    '--dsh-custom-css-recover': 'scroll cover',
+  })
+  const off = rule(clientSettings({}, { build: 'b1', revision: 'r1' }), ':root')
+  assert.deepEqual(Object.keys(off), ['--dsh-custom-css-build', '--dsh-custom-css-revision', '--dsh-custom-css-recover'])
+  assert.equal(off['--dsh-custom-css-recover'], 'none')
+  assert.deepEqual(Config({ recover: RECOVERIES }).recover, RECOVERIES)
+  assert.throws(() => Config({ recover: ['pray'] }))
+})
+
+test('edge to edge comes after the overflow fix and before the user css', () => {
   const style = composeStyle({ fixOverflow: true, edgeToEdge: true, css: ':root { --edge-shell-right: 0px }' })
-  assert.equal(rule(style, ':root')['--dsh-custom-css-edge'], '1')
   assert.ok(style.indexOf(OVERFLOW_FIX) < style.indexOf(EDGE_TO_EDGE))
   assert.ok(style.indexOf(EDGE_TO_EDGE) < style.indexOf('--edge-shell-right: 0px'), 'user css can lower a shell inset')
 })
@@ -77,12 +95,6 @@ test('edge to edge leaves the overflow fix alone: body stays in normal flow', ()
   assert.doesNotMatch(EDGE_TO_EDGE, /overflow/)
 })
 
-test('the probe setting adds the flag client.js looks for', () => {
-  const style = composeStyle({ fixOverflow: true, probe: true, css: 'a { top: 0 }' })
-  assert.ok(style.includes('--dsh-custom-css-probe: 1'))
-  assert.ok(style.indexOf(PROBE_FLAG) < style.indexOf('a { top: 0 }'))
-})
-
 test('user css comes after the fix, so it can override it', () => {
   const style = composeStyle({ fixOverflow: true, css: 'body { color: red }' })
   assert.ok(style.indexOf('overflow: hidden') < style.indexOf('color: red'))
@@ -94,6 +106,8 @@ test('the fix can be turned off and only the user css remains', () => {
   assert.match(style, /a \{ top: 0 \}/)
 })
 
-test('nothing configured gives an empty stylesheet', () => {
-  assert.equal(composeStyle({ fixOverflow: false, css: '  ' }), '')
+test('with nothing turned on the stylesheet holds the settings for client.js and no rule for the page', () => {
+  const style = composeStyle({ fixOverflow: false, css: '  ' }, { build: 'b1', revision: 'r1' })
+  assert.equal(style, `/* dsh-custom-css: settings for the browser half */\n${clientSettings({}, { build: 'b1', revision: 'r1' })}`)
+  assert.deepEqual(style.replace(/\/\*.*?\*\//gs, '').match(/[^{}\s][^{}]*(?={)/g).map(selector => selector.trim()), [':root'])
 })
