@@ -330,13 +330,18 @@ window.__ModuleLoader__.load({
       let undoTry = null
       let tapsUntil = 0
       let tapsLeft = 0
-      let reloaded = win.sessionStorage.getItem(RELOADED_KEY) === '1'
+      /** Remembers a reload across it. Storage can be refused (private browsing); then a reload is simply never tried twice in a row from one page. */
+      const memory = {
+        get: () => { try { return win.sessionStorage.getItem(RELOADED_KEY) === '1' } catch { return false } },
+        set: (on) => { try { if (on) win.sessionStorage.setItem(RELOADED_KEY, '1'); else win.sessionStorage.removeItem(RELOADED_KEY) } catch { /* nothing to remember with */ } },
+      }
+      let reloaded = memory.get()
 
       const look = (event, extra = {}) => {
         const reading = reader.read()
         if (!reading.stale && reloaded) {
           reloaded = false
-          win.sessionStorage.removeItem(RELOADED_KEY)
+          memory.set(false)
         }
         if (settings.report) {
           seq += 1
@@ -354,7 +359,10 @@ window.__ModuleLoader__.load({
         for (const name of settings.recover) {
           if (name === 'reload' && reloaded) continue
           look(`before:${name}`)
-          if (name === 'reload') win.sessionStorage.setItem(RELOADED_KEY, '1')
+          if (name === 'reload') {
+            reloaded = true
+            memory.set(true)
+          }
           const undo = RECOVERIES[name](doc)
           await new Promise((resolve) => { after(TRY_MS, resolve) })
           const cleared = !look(`after:${name}`).stale
@@ -453,7 +461,8 @@ window.__ModuleLoader__.load({
     /**
      * Links the stylesheet and runs what its settings ask for. When the page comes to the front it asks the
      * Host for the current revision; a newer stylesheet is loaded beside the old one and takes its place
-     * once it has arrived, so the page is never without one.
+     * once it has arrived, so the page is never without one. A stylesheet that failed to load is tried
+     * again then too.
      * @returns {() => void} Removes everything it added.
      */
     function start(doc) {
@@ -484,7 +493,8 @@ window.__ModuleLoader__.load({
           stopFeatures = startFeatures(doc, settings, onRevision)
         }
         next.onerror = () => {
-          if (current !== next) next.remove()
+          next.remove()
+          if (current === next) current = null
           arriving = null
         }
         if (current === null) current = next
@@ -492,7 +502,10 @@ window.__ModuleLoader__.load({
         doc.head.appendChild(next)
       }
       const ask = () => {
-        if (doc.visibilityState !== 'visible' || revision === '') return
+        if (doc.visibilityState !== 'visible' || arriving !== null) return
+        // the first stylesheet never arrived (DSH was away): try again
+        if (current === null) return void link(href)
+        if (revision === '') return
         win.fetch(href, { method: 'HEAD', cache: 'no-store' })
           .then(response => onRevision(response.headers.get('etag')?.replace(/"/g, '')))
           .catch(() => {})

@@ -241,6 +241,17 @@ test('a setting changed on the Host reaches an open page when it comes to the fr
   assert.deepEqual(page.metas(), { viewport: VIEWPORT }, 'a setting turned off is undone the same way')
 })
 
+test('a stylesheet that did not arrive is asked for again when the page comes to the front', async () => {
+  const page = fakePage({ edge: '1' })
+  await loadClient(page)
+  page.link().onerror()
+  assert.equal(page.links().length, 0)
+  page.listeners.get('window:pageshow')()
+  assert.equal(page.links().length, 1)
+  page.link().onload()
+  assert.equal(page.metas()['apple-mobile-web-app-status-bar-style'], 'black-translucent')
+})
+
 test('with probe on the panel shows the readings, marks taps, and leaves nothing behind', async () => {
   const page = fakePage({ probe: ' 1' })
   const effects = await loadClient(page)
