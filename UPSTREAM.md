@@ -41,7 +41,9 @@ An earlier version of this fix made `body` `position: fixed; inset: 0`. That sto
 
 Added to an iPhone's home screen, DSH is laid out inside the safe area by iOS: `index.html` has `width=device-width, initial-scale=1` with no `viewport-fit=cover`, and nothing says how the status bar should be drawn. That inset belongs to the system, and after a rotation or a return from the background iOS can keep the inset of the other orientation: the page starts a status bar's width from the edge with a blank band beside it, or taps land away from where things are drawn, until the app is restarted. It is easiest to hit on a phone whose status bar sits above the page in portrait and in a column beside it in landscape, since every rotation moves the inset to another side.
 
-A page gets out of this by taking the whole screen (`viewport-fit=cover`, `apple-mobile-web-app-status-bar-style`) and padding itself with `env(safe-area-inset-*)`, which the browser keeps current. This plugin's `edgeToEdge` setting does that from outside, and three things in the frontend make it harder than it should be.
+Measured in the stale state, landscape after a turn from portrait: `innerWidth`/`innerHeight` and the visual viewport have the new size, but `documentElement.clientHeight` is short by the portrait status bar and the document sits at a negative scroll offset of the same amount (`scrollY`, `visualViewport.pageTop`), which is the blank band. The page can see that, so the frontend could at least notice and reload or re-place itself.
+
+A page gets out of this by taking the whole screen (`viewport-fit=cover`, `apple-mobile-web-app-status-bar-style`) and padding itself with `env(safe-area-inset-*)`, which the browser keeps current, on the iOS versions that grant it; recent ones often keep the status bar outside the page whatever it declares (WebKit bugs 301994, 317153). This plugin's `edgeToEdge` setting does that from outside, and three things in the frontend make it harder than it should be.
 
 ## What gets in the way
 
