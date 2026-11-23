@@ -59,7 +59,7 @@ Lower a shell inset to let DSH into that strip, then move aside what must stay r
 }
 ```
 
-Now the conversation and the composer use the full width and only the header row steps aside. Dialogs and other overlays follow the box, so give them the same treatment if they would reach the status items (`body > [role="presentation"]` is DSH's dialog layer). To try a layout on a desktop, give the insets numbers for a moment: `:root { --edge-inset-right: 84px; }`.
+Now the conversation and the composer use the full width and only the header row steps aside. Dialogs and other overlays follow the box, so give them the same treatment if they would reach the status items (`body > [role="presentation"]` is DSH's dialog layer). To try a layout on a desktop, give the insets numbers for a moment: `:root { --edge-inset-right: 60px; }`.
 
 ### Limits
 
