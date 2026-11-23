@@ -26,7 +26,9 @@ Take the document out of the scrolling business:
 
 ```css
 html { overflow: hidden; overscroll-behavior: none; }
-body { position: fixed; inset: 0; width: 100%; overflow: clip; overscroll-behavior: none; }
+body { position: relative; overflow: clip; overscroll-behavior: none; }
 ```
 
-`overflow: hidden` on `html` alone is not enough, because script can still scroll a hidden element; `overflow: clip` on a `position: fixed` body cannot be scrolled at all. Layout is unchanged otherwise (checked at desktop and phone sizes with a session open).
+`overflow: hidden` on `html` alone is not enough, because script can still scroll a hidden viewport. `overflow: clip` on `body` cannot be scrolled at all, and `position: relative` makes `body` the box absolutely positioned elements are clipped by, so nothing reaches past the window. Checked in WebKit and Chromium with the repro above, with a fixed element below the window and with focus moving to a field far below: `scrollTop` stays 0 in every case. Layout is unchanged otherwise.
+
+An earlier version of this fix made `body` `position: fixed; inset: 0`. That stops the scrolling too, but it puts the whole app into one fixed layer, and on iOS fixed layers are placed by the browser from its own idea of the viewport. In an iPhone home-screen app that idea can go stale after a rotation or a return from the background, so the app was drawn away from where taps landed, or shrunk with a blank band. Keep `body` in normal flow.
