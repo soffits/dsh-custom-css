@@ -13,7 +13,7 @@ export { Config }
 
 /**
  * @param {import('@deepseek-ai/cordis').Context} ctx
- * @param {{ fixOverflow: boolean, css: string }} config
+ * @param {{ fixOverflow: boolean, probe: boolean, css: string }} config
  */
 export function apply(ctx, config) {
   const style = composeStyle(config)
