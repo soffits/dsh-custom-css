@@ -7,7 +7,7 @@ export const Config = z.object({
   edgeToEdge: z.boolean().default(false)
     .description('Take the whole screen on a phone: the page reaches under the status bar and the home indicator, and DSH keeps inside the safe area by itself. An app already on the home screen has to be added again to pick it up. See the README.'),
   report: z.boolean().default(false)
-    .description('Have each open page send what its browser reports (window, screen and viewport sizes, safe-area insets, display mode, the tags this plugin set, user agent) to this DSH, on load and whenever they change. Nothing is drawn. The lines are kept in custom-css/reports.jsonl under the DSH home. For diagnosing layout problems on a device you cannot look at.'),
+    .description('Have each open page send what its browser reports (window, screen and viewport sizes, safe-area insets, display mode, the tags this plugin set, user agent) to this DSH, on load and whenever they change. Nothing is drawn. The lines are kept in custom-css/reports.jsonl under the DSH home, beside one for each time a page fetched the stylesheet. For diagnosing layout problems on a device you cannot look at.'),
   probe: z.boolean().default(false)
     .description('Draw the same readings over the page, with a mark where each tap lands. Shows on every device that has the page open; leave it off otherwise.'),
   recover: z.array(z.union(RECOVERIES.map(name => z.const(name)))).default([])
