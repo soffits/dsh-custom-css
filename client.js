@@ -7,7 +7,8 @@
  * the browser reports sent to the Host (`report`) or drawn over the page
  * (`probe`), and the recovery experiment (`recover`). When the page comes back
  * to the front it asks the Host whether its stylesheet is still the current
- * one, so a changed setting needs no reload.
+ * one, so a changed setting needs no reload. A request to the Host that fails
+ * is counted, and the next report that arrives says so.
  * Plain JavaScript in DSH's Client module format (no build step).
  */
 window.__ModuleLoader__.load({
@@ -17,6 +18,9 @@ window.__ModuleLoader__.load({
     const PROBE_ID = 'dsh-custom-css-probe'
     const SETTING = '--dsh-custom-css-'
     const RELOADED_KEY = 'dsh-custom-css-reloaded'
+    const UNSENT_KEY = 'dsh-custom-css-unsent'
+    /** The response header in which the Host names its current stylesheet. An `etag` would say the same, but proxies rewrite those. */
+    const REVISION_HEADER = 'x-custom-css-revision'
     const SIDES = ['Top', 'Right', 'Bottom', 'Left']
     const DISPLAY_MODES = ['standalone', 'fullscreen', 'minimal-ui', 'browser']
     /** How long a tap mark stays on the page, in ms. */
@@ -30,6 +34,8 @@ window.__ModuleLoader__.load({
     /** Taps are reported for this long after a burst, in ms, and at most this many of them. */
     const TAP_MS = 30000
     const TAP_COUNT = 20
+    /** A page out of step with its Host half asks again when it is touched, at most this often, in ms. */
+    const TOUCH_ASK_MS = 5000
     /** Events after which the sizes may have changed, by what they are fired on. */
     const EVENTS = {
       window: ['resize', 'orientationchange', 'pageshow', 'pagehide', 'scroll'],
@@ -151,6 +157,33 @@ window.__ModuleLoader__.load({
         return () => { existing.content = before }
       })
       return () => { for (const restore of undo) restore() }
+    }
+
+    /**
+     * Counts the requests to the Host that failed (a report, the stylesheet, the question about its revision)
+     * and the features that would not start, with the time of the first and what the last one was, until a
+     * report gets through and takes the count along. Kept in `localStorage`, because what follows a failure
+     * is often a new page: a sign-in, a reload, the app started again. Storage can be refused (private
+     * browsing); then the count lasts as long as the page.
+     * @returns {{ note: (what: string, error: unknown, line?: object) => void, pending: () => object | null, sent: (count: number) => void, clear: () => void }}
+     */
+    function createTally(win) {
+      let held = null
+      try { held = JSON.parse(win.localStorage.getItem(UNSENT_KEY)) } catch { /* refused or unreadable: start empty */ }
+      const keep = (value) => {
+        held = value
+        try { if (value === null) win.localStorage.removeItem(UNSENT_KEY); else win.localStorage.setItem(UNSENT_KEY, JSON.stringify(value)) } catch { /* nothing to keep it in */ }
+      }
+      return {
+        note(what, error, line) {
+          const t = new Date().toISOString()
+          keep({ count: (held?.count ?? 0) + 1, since: held?.since ?? t, last: { t, what, error: String(error?.message ?? error), ...(line ? { line } : {}) } })
+        },
+        pending: () => held,
+        /** A report that carried the first `count` failures arrived; later ones stay. */
+        sent(count) { keep(held !== null && held.count > count ? { ...held, count: held.count - count } : null) },
+        clear() { keep(null) },
+      }
     }
 
     /**
@@ -302,17 +335,20 @@ window.__ModuleLoader__.load({
      * event, one when it has gone quiet (`settled`) and one later if anything still moved (`late`).
      * With `report` on each reading is sent to the Host, and so is every tap for a while after a burst or
      * while the page is stale (where the finger was, and what it hit). With `recover` set, a settled
-     * reading that is stale starts the tries, each sent before and after.
+     * reading that is stale starts the tries, each sent before and after. A report the Host did not take
+     * (no answer, or not its answer) goes into the tally, and the next one that arrives carries the tally
+     * as `unsent`.
      * @param {object} options
      * @param {string} options.url - Where reports go.
      * @param {object} options.settings
      * @param {{ read: () => object }} options.reader
+     * @param {{ id: string, seq: number }} options.page - The document's name in its reports and the number of its last one; both outlive a change of settings.
+     * @param {ReturnType<typeof createTally>} options.tally
      * @param {(revision: string) => void} options.onRevision - Told the Host's current revision with every answer.
      * @returns {() => void} Stops it.
      */
-    function startWatch(doc, { url, settings, reader, onRevision }) {
+    function startWatch(doc, { url, settings, reader, page, tally, onRevision }) {
       const win = doc.defaultView
-      const page = Math.random().toString(36).slice(2, 10)
       const frames = frameMeter(win)
       const timers = new Set()
       const after = (ms, fn) => {
@@ -323,7 +359,6 @@ window.__ModuleLoader__.load({
       const cancel = (timer) => { win.clearTimeout(timer); timers.delete(timer) }
       /** Window sizes at which a full round of tries cleared nothing; not tried again. */
       const gaveUp = new Set()
-      let seq = 0
       let burst = null
       let settledAs = ''
       let trying = false
@@ -337,6 +372,18 @@ window.__ModuleLoader__.load({
       }
       let reloaded = memory.get()
 
+      /** `keepalive` lets a line outlive its page, and browsers ration it, so only a page on its way out asks for it. */
+      const send = (line) => {
+        const unsent = tally.pending()
+        win.fetch(url, { method: 'POST', keepalive: doc.visibilityState === 'hidden', headers: { 'content-type': 'application/json' }, body: JSON.stringify(unsent ? { ...line, unsent } : line) })
+          .then(async (response) => {
+            if (!response.ok) throw new Error(`HTTP ${response.status}`)
+            const answer = await response.json()
+            if (unsent) tally.sent(unsent.count)
+            onRevision(answer.revision)
+          })
+          .catch(error => tally.note('report', error, line))
+      }
       const look = (event, extra = {}) => {
         const reading = reader.read()
         if (!reading.stale && reloaded) {
@@ -344,12 +391,9 @@ window.__ModuleLoader__.load({
           memory.set(false)
         }
         if (settings.report) {
-          seq += 1
-          const line = { seq, page, t: new Date().toISOString(), ms: Math.round(win.performance.now()), event, ...extra, ...reading, fps: frames.rate(), settings: { edge: settings.edge, probe: settings.probe, recover: settings.recover }, revision: settings.revision, build: settings.build, client: BUILD, ua: win.navigator.userAgent }
-          win.fetch(url, { method: 'POST', keepalive: true, headers: { 'content-type': 'application/json' }, body: JSON.stringify(line) })
-            .then(response => (response.ok ? response.json() : null))
-            .then((answer) => { if (answer) onRevision(answer.revision) })
-            .catch(() => {})
+          page.seq += 1
+          const line = { seq: page.seq, page: page.id, t: new Date().toISOString(), ms: Math.round(win.performance.now()), event, ...extra, ...reading, fps: frames.rate(), settings: { edge: settings.edge, probe: settings.probe, recover: settings.recover }, revision: settings.revision, build: settings.build, client: BUILD, ua: win.navigator.userAgent }
+          send(line)
         }
         return reading
       }
@@ -434,7 +478,8 @@ window.__ModuleLoader__.load({
 
       const unlisten = listen(doc, onEvent)
       doc.addEventListener('pointerdown', onTap, { capture: true, passive: true })
-      onEvent({ type: reloaded ? 'after:reload' : 'load' })
+      // the document's first line is its load; a later start is new settings arriving
+      onEvent({ type: reloaded ? 'after:reload' : page.seq === 0 ? 'load' : 'settings' })
       return () => {
         unlisten()
         doc.removeEventListener('pointerdown', onTap, { capture: true })
@@ -444,79 +489,165 @@ window.__ModuleLoader__.load({
       }
     }
 
-    /** Starts what the settings ask for. @returns {() => void} Stops all of it. */
-    function startFeatures(doc, settings, onRevision) {
+    /**
+     * Starts what the settings ask for.
+     * @param {{ page: { id: string, seq: number }, tally: ReturnType<typeof createTally>, onRevision: (revision: string) => void }} shared - What outlives a change of settings.
+     * @returns {() => void} Stops all of it.
+     */
+    function startFeatures(doc, settings, shared) {
       const stops = []
-      if (settings.edge) stops.push(claimScreen(doc))
-      const watching = settings.report || settings.recover.length > 0
-      if (settings.probe || watching) {
-        const reader = createReader(doc)
-        stops.push(reader.stop)
-        if (settings.probe && doc.getElementById(PROBE_ID) === null) stops.push(startPanel(doc, reader))
-        if (watching) stops.push(startWatch(doc, { url: new URL('custom-css/report', doc.baseURI).href, settings, reader, onRevision }))
+      const stop = () => { for (const each of stops.splice(0).reverse()) each() }
+      try {
+        if (settings.edge) stops.push(claimScreen(doc))
+        // this Host half's stylesheet says nothing will be sent, so nothing is kept to send
+        if (settings.build !== '' && !settings.report) shared.tally.clear()
+        const watching = settings.report || settings.recover.length > 0
+        if (settings.probe || watching) {
+          const reader = createReader(doc)
+          stops.push(reader.stop)
+          if (settings.probe && doc.getElementById(PROBE_ID) === null) stops.push(startPanel(doc, reader))
+          if (watching) stops.push(startWatch(doc, { url: new URL('custom-css/report', doc.baseURI).href, settings, reader, ...shared }))
+        }
+      } catch (error) {
+        stop()
+        throw error
       }
-      return () => { for (const stop of stops.reverse()) stop() }
+      return stop
     }
 
     /**
-     * Links the stylesheet and runs what its settings ask for. When the page comes to the front it asks the
-     * Host for the current revision; a newer stylesheet is loaded beside the old one and takes its place
-     * once it has arrived, so the page is never without one. A stylesheet that failed to load is tried
-     * again then too.
+     * Links the stylesheet and runs what its settings ask for. The features follow what the stylesheet in
+     * the page says, read when one finishes loading and again whenever the page is shown or touched, so
+     * they start even where a load event went missing. When the page comes to the front it asks the Host
+     * for the current revision; a newer stylesheet is loaded beside the old one and takes its place once it
+     * has arrived, so the page is never without one. A stylesheet that failed to load, or was still on its
+     * way when the page was put away (such a load may never end), is asked for again then too.
      * @returns {() => void} Removes everything it added.
      */
     function start(doc) {
-      if (doc.getElementById(LINK_ID)) return () => {}
+      // another copy of this module already runs here; an element of the page that only shares the id is not one
+      if (doc.querySelector(`link#${LINK_ID}[rel="stylesheet"]`)) return () => {}
       const win = doc.defaultView
-      const href = new URL('custom-css/style.css', doc.baseURI).href
+      const page = { id: Math.random().toString(36).slice(2, 10), seq: 0 }
+      const href = `${new URL('custom-css/style.css', doc.baseURI).href}?p=${page.id}`
+      const tally = createTally(win)
+      /** The stylesheet the page is meant to use, and whether it has shown that it is applied. */
       let current = null
+      let loaded = false
       let arriving = null
-      let revision = ''
+      let stalled = false
+      let asking = false
+      let touchAsked = -Infinity
+      /** What the stylesheet in the page said when last read, and which settings the running features were started with. */
+      let settings = readSettings(doc)
+      let running = ''
       let stopFeatures = () => {}
 
       const onRevision = (latest) => {
-        if (latest && latest !== revision && arriving === null) link(`${href}?r=${encodeURIComponent(latest)}`)
+        if (latest && latest !== settings.revision && loaded && arriving === null) link(`${href}&r=${encodeURIComponent(latest)}`)
+      }
+      /** Acts on what the stylesheet in the page says now, if that is not what is running. A start that failed is tried again the next time. */
+      const sync = () => {
+        settings = readSettings(doc)
+        // a stylesheet that names its build is applied, whether or not its load event came
+        if (settings.build !== '') loaded = true
+        const wanted = JSON.stringify(settings)
+        if (wanted === running) return
+        try {
+          stopFeatures()
+          stopFeatures = () => {}
+          running = ''
+          stopFeatures = startFeatures(doc, settings, { page, tally, onRevision })
+          running = wanted
+        } catch (error) {
+          tally.note('start', error)
+        }
       }
       function link(address) {
         const next = doc.createElement('link')
         next.rel = 'stylesheet'
         next.href = address
-        if (current === null) next.id = LINK_ID
         next.onload = () => {
-          if (current !== next) current?.remove()
+          if (next === arriving) {
+            if (current !== null) drop(current)
+            current = next
+            arriving = null
+          }
           next.id = LINK_ID
-          current = next
-          arriving = null
-          stopFeatures()
-          const settings = readSettings(doc)
-          revision = settings.revision
-          stopFeatures = startFeatures(doc, settings, onRevision)
+          loaded = true
+          sync()
         }
         next.onerror = () => {
           next.remove()
           if (current === next) current = null
-          arriving = null
+          if (arriving === next) arriving = null
+          tally.note('stylesheet', 'did not load')
         }
-        if (current === null) current = next
-        else arriving = next
+        if (current === null) {
+          next.id = LINK_ID
+          current = next
+          loaded = false
+        } else {
+          arriving = next
+        }
         doc.head.appendChild(next)
       }
+      /** Takes a stylesheet that is still on its way out of the page; whatever it does later is not heard. */
+      const drop = (node) => {
+        node.onload = null
+        node.onerror = null
+        node.remove()
+      }
       const ask = () => {
-        if (doc.visibilityState !== 'visible' || arriving !== null) return
-        // the first stylesheet never arrived (DSH was away): try again
+        if (doc.visibilityState !== 'visible') return
+        if (stalled) {
+          stalled = false
+          if (arriving !== null) drop(arriving)
+          arriving = null
+          sync()
+          if (current !== null && !loaded) {
+            drop(current)
+            current = null
+          }
+        }
         if (current === null) return void link(href)
-        if (revision === '') return
+        sync()
+        // a first stylesheet still on its way says what to do when it lands
+        if (!loaded || asking || arriving !== null) return
+        asking = true
         win.fetch(href, { method: 'HEAD', cache: 'no-store' })
-          .then(response => onRevision(response.headers.get('etag')?.replace(/"/g, '')))
-          .catch(() => {})
+          .then((response) => {
+            asking = false
+            if (!response.ok) throw new Error(`HTTP ${response.status}`)
+            onRevision(response.headers.get(REVISION_HEADER))
+          })
+          .catch((error) => {
+            asking = false
+            tally.note('revision', error)
+          })
+      }
+      const onVisibility = () => {
+        if (doc.visibilityState === 'visible') ask()
+        else if (arriving !== null || (current !== null && !loaded)) stalled = true
+      }
+      /** A stylesheet from a Host half that is not this code's (an update still under way), or none at all: a touch asks again. */
+      const onTouch = () => {
+        sync()
+        if (settings.build === BUILD || win.performance.now() - touchAsked < TOUCH_ASK_MS) return
+        touchAsked = win.performance.now()
+        ask()
       }
 
       link(href)
-      doc.addEventListener('visibilitychange', ask)
+      doc.addEventListener('visibilitychange', onVisibility)
       win.addEventListener('pageshow', ask)
+      win.addEventListener('online', ask)
+      doc.addEventListener('pointerdown', onTouch, { capture: true, passive: true })
       return () => {
-        doc.removeEventListener('visibilitychange', ask)
+        doc.removeEventListener('visibilitychange', onVisibility)
         win.removeEventListener('pageshow', ask)
+        win.removeEventListener('online', ask)
+        doc.removeEventListener('pointerdown', onTouch, { capture: true })
         stopFeatures()
         arriving?.remove()
         current?.remove()

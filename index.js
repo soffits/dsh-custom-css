@@ -3,7 +3,9 @@
  * stylesheet (the settings for the browser half, the built-in parts that are
  * turned on, then the user's own CSS from the plugin row) to the signed-in
  * owner; client.js links it into the page and acts on the settings. With
- * `report` on it also keeps what open pages say their browser reports.
+ * `report` on it also keeps what open pages say their browser reports, beside
+ * a line for each stylesheet it served, so a page that fetched the stylesheet
+ * and never reported shows as that.
  */
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
@@ -31,6 +33,7 @@ export function apply(ctx, config, { dir = stateDir(), now = () => new Date() } 
   const revision = short(build, JSON.stringify(config))
   const style = composeStyle(config, { build, revision })
   const log = config.report ? createReportLog({ dir }) : undefined
+  const keep = line => log.append({ at: now().toISOString(), ...line })
   ctx.effect(() => ctx.webServer.register({
     kind: 'prefix',
     path: PREFIX,
@@ -38,7 +41,9 @@ export function apply(ctx, config, { dir = stateDir(), now = () => new Date() } 
       connection: ctx.connection,
       style: () => style,
       revision: () => revision,
-      report: log && (reading => log.append({ at: now().toISOString(), current: reading.client === build && reading.revision === revision, ...reading })),
+      report: log && (reading => keep({ current: reading.client === build && reading.revision === revision, ...reading })),
+      served: log && (request => keep({ event: 'stylesheet', ...request })),
+      refused: ({ status, method, path }) => ctx.logger?.warn(`custom-css: refused ${method} ${path} with ${status}`),
     }),
   }), 'custom-css: routes')
 }
