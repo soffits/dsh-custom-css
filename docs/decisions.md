@@ -41,6 +41,7 @@
 ## Recovery experiment
 
 - The stale state is recognised by what the page itself reports (a negative scroll offset, or a home-screen app whose layout is smaller than its window). `screen` cannot be used: a folding phone reported its other display's size.
+- A layout iOS gives a page it holds in the background is not the stale state. A home-screen app loaded or kept while hidden can sit at a window that is short of the visible one (on the phone measured, the full width but short by the status row), and no page ever came to the front at that size, so it is left alone: tries there would run on a page nobody sees.
 - Tries run in the order the setting lists, each with a reading before and after, because the point is to learn which one helps on a device nobody here can hold.
 - `cover` copies numbers by script (the visual viewport's position and size onto `body`), which the rest of the plugin avoids: no CSS value exposes the visual viewport's offset in the document. It is redone after every event and removed when the state clears.
 - `reload` runs once per stale state, remembered in `sessionStorage`, so a reload that does not help cannot loop.
