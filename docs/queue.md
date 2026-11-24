@@ -10,4 +10,7 @@
 
 - Rare: the recovery experiment takes any home-screen app laid out smaller than its window for the stale state (a split-screen window on a tablet might be), and would run its tries there.
 - Rare: with `report` off and a page that never leaves the front, a changed setting waits for the next time the page is hidden and shown.
+- Rare: a first stylesheet whose request hangs while the page stays in front is only replaced once the page has been hidden and shown; the browser's own timeout ends it sooner on most networks.
+- Rare: while DSH cannot be reached, every touch a few seconds apart tries the stylesheet again and adds one to `unsent`.
+- Not explained: on an iOS home-screen app, some freshly loaded pages fetched the stylesheet and then sent neither a report nor the question about the revision, while a reload a quarter of an hour later did both; not reproduced in desktop WebKit. The stylesheet lines and `unsent` are there to tell which step is missing the next time.
 

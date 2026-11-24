@@ -27,7 +27,7 @@ or add the bundle in the Web UI's plugin manager. A local checkout works too: `p
 | `recover` | empty | Experiment: what to try when an iOS home-screen app comes back from a rotation with an empty band. See [Reports](#reports). |
 | `css` | empty | Your CSS, added after the fix, so it can override it. |
 
-A changed setting reaches an open page the next time it comes to the front (a tab switched back to, an app reopened), without a reload; with `report` on, also at its next report. The stylesheet is served uncached from `/custom-css/style.css` to the signed-in owner only.
+A changed setting reaches an open page the next time it comes to the front (a tab switched back to, an app reopened), without a reload; with `report` on, also at its next report. The same goes for an update of the plugin itself: a page that got the new browser half before DSH restarted the plugin catches up at the next touch. The stylesheet is served uncached from `/custom-css/style.css` to the signed-in owner only.
 
 ## Edge to edge
 
@@ -77,6 +77,8 @@ What DSH itself could change to make this unnecessary is in [UPSTREAM.md](UPSTRE
 
 With `report` on, every open page posts a reading to `/custom-css/report` and DSH appends it, one JSON object per line, to `custom-css/reports.jsonl` under the DSH home (`~/.dsh` unless `DSH_HOME` says otherwise). At 512 KB the file becomes `reports.old.jsonl` and a new one starts, so the two never hold more than about 1 MB. Only the signed-in owner's pages are listened to.
 
+DSH also writes a line each time it serves a page the stylesheet (`"event": "stylesheet"`, with `method`, the page's id and its user agent), so a page that loaded the stylesheet and then never reported shows as exactly that. A request it refuses (not signed in, not a report, too large) goes to DSH's log as method, path and status.
+
 A page reports when it loads and after every resize, rotation, show or hide: once at the first event of a burst, once when it has gone quiet (`settled`, with the events it saw) and once more if anything still moved a few seconds later (`late`). For half a minute after a burst it also reports up to twenty taps: where the finger was in the window and in the document, the element that got the tap, and the element drawn at that point.
 
 Each line holds:
@@ -84,8 +86,8 @@ Each line holds:
 | Field | Meaning |
 | --- | --- |
 | `at`, `t`, `ms` | When DSH got it, the page's own clock, and milliseconds since the page loaded. |
-| `page`, `seq` | One id per page load and a counter within it, to read a rotation as a series. |
-| `event`, `events` | What caused the line. |
+| `page`, `seq` | One id per page load and a counter within it, to read a rotation as a series. The id is the `p` of the page's stylesheet requests. |
+| `event`, `events` | What caused the line. `load` is a page's first line, `settings` the first after new settings reached it. |
 | `window`, `html`, `visual`, `screen`, `dpr` | Window size, layout size, visual viewport (size, offset, position in the document, scale), screen and orientation. |
 | `insets` | The safe-area insets, top right bottom left, measured from `env()`. |
 | `body`, `root`, `scroll` | Where DSH's boxes are and how far the window is scrolled. |
@@ -96,8 +98,11 @@ Each line holds:
 | `settings`, `revision`, `build`, `client`, `current` | The settings the page runs with, and whether its stylesheet and its copy of the plugin are the current ones. |
 | `ua` | The browser's user agent. |
 | `tap` | For a tap: `client`, `page`, `target`, `inside` (the point lies in the target's box) and `drawnThere`. |
+| `unsent` | Only after trouble: how many requests to DSH failed since the last line that arrived (`count`, `since`), and the last of them (`last`: `what` is `report`, `stylesheet`, `revision` or `start`, `error` what the browser said, such as `HTTP 401`, and for a report the `line` that was lost). |
 
 No page content is sent: elements are named by tag, label and box.
+
+A page counts what it could not send in its browser's storage, so the count survives a reload, a new sign-in or the app being started again, and the next line that gets through carries it. A stretch with no lines at all therefore reads one of three ways: `unsent` on the next line (the page tried and was refused or offline), stylesheet lines without reports (the page got the stylesheet and its features did not start), or nothing (the page never asked DSH for anything).
 
 ### The recovery experiment
 
