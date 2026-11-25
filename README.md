@@ -1,3 +1,5 @@
+> **Moved.** This plugin is now part of [@soffits/dsh-web-tweaks](https://github.com/soffits/dsh-web-tweaks) (`features/custom-css`), with its history. This repository is archived.
+
 # dsh-custom-css
 
 Custom CSS for the DeepSeek Harness (DSH) Web UI, as a small plugin with no dependency on any other plugin.
